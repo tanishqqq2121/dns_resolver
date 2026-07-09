@@ -34,7 +34,7 @@ void encode_dns_name(const std::string& domain, std::vector<uint8_t>& buffer) {
 }
 
 int main() {
-    std::cout << "--- Milestone 5: Sending & Receiving DNS Response ---" << std::endl;
+    std::cout << "--- Final Project: DNS Resolver with Parsing ---" << std::endl;
 
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
@@ -54,11 +54,11 @@ int main() {
     serverAddr.sin_port = htons(53);
     serverAddr.sin_addr.s_addr = inet_addr("8.8.8.8");
 
-    // Build Query Packet
+    // Build Query
     std::vector<uint8_t> packet;
     DNSHeader header;
     header.id = htons(0x1234);
-    header.flags = htons(0x0100); // Recursion Desired
+    header.flags = htons(0x0100);
     header.q_count = htons(1);
     header.ans_count = htons(0);
     header.auth_count = htons(0);
@@ -68,13 +68,11 @@ int main() {
     std::memcpy(header_bytes, &header, 12);
     packet.insert(packet.end(), header_bytes, header_bytes + 12);
 
-    encode_dns_name("example.com", packet);
+    std::string targetDomain = "example.com";
+    encode_dns_name(targetDomain, packet);
 
-    uint16_t qtype = htons(1); // Type A (IPv4)
-    packet.push_back(0); packet.push_back(1);
-    
-    uint16_t qclass = htons(1); // Class IN
-    packet.push_back(0); packet.push_back(1);
+    packet.push_back(0); packet.push_back(1); // Type A
+    packet.push_back(0); packet.push_back(1); // Class IN
 
     // Send Query
     int bytesSent = sendto(clientSocket, reinterpret_cast<const char*>(packet.data()), packet.size(), 0, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
@@ -84,28 +82,62 @@ int main() {
         WSACleanup();
         return 1;
     }
-    std::cout << "[Step 1] Query sent successfully." << std::endl;
 
     // Receive Response
-    std::cout << "[Step 2] Waiting for Google DNS response..." << std::endl;
-    
-    uint8_t responseBuffer[512]; // DNS over UDP has a max classic size of 512 bytes
+    uint8_t responseBuffer[512];
     int serverAddrLen = sizeof(serverAddr);
-    
     int bytesReceived = recvfrom(clientSocket, reinterpret_cast<char*>(responseBuffer), sizeof(responseBuffer), 0, (struct sockaddr*)&serverAddr, &serverAddrLen);
 
     if (bytesReceived == SOCKET_ERROR) {
-        std::cerr << "[ERROR] Failed to receive data. Code: " << WSAGetLastError() << std::endl;
+        std::cerr << "Failed to receive data." << std::endl;
     } else {
-        std::cout << "[SUCCESS] Received " << bytesReceived << " bytes back from Google!" << std::endl;
+        std::cout << "[SUCCESS] Received response payload." << std::endl;
         
-        // Print out the raw hexadecimal response layout
-        std::cout << "\n--- Raw Hex Response ---" << std::endl;
-        for (int i = 0; i < bytesReceived; i++) {
-            std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(responseBuffer[i]) << " ";
-            if ((i + 1) % 16 == 0) std::cout << std::endl; // Newline every 16 bytes
+        // --- PARSING ENGINE ---
+        // 1. Skip Header (12 bytes) + original encoded question size
+        // The question starts at byte 12 and ends after the domain name length + 4 bytes (QTYPE/QCLASS)
+        int answerOffset = packet.size(); 
+        
+        // Read how many answers the server sent back from the response header
+        DNSHeader* respHeader = reinterpret_cast<DNSHeader*>(responseBuffer);
+        int answerCount = ntohs(respHeader->ans_count);
+        std::cout << "Found " << answerCount << " answer records in packet.\n" << std::endl;
+
+        int cursor = answerOffset;
+        for (int i = 0; i < answerCount; i++) {
+            if (cursor >= bytesReceived) break;
+
+            // Check if it's a pointer/compression (starts with 0xC0)
+            if ((responseBuffer[cursor] & 0xC0) == 0xC0) {
+                cursor += 2; // Skip the name pointer
+            } else {
+                while (responseBuffer[cursor] != 0 && cursor < bytesReceived) {
+                    cursor++;
+                }
+                cursor++; // Skip null terminator
+            }
+
+            // Read Type, Class, and TTL metadata fields (skip 2 + 2 + 4 = 8 bytes)
+            cursor += 8;
+
+            // Read data length (RDLENGTH is 2 bytes)
+            uint16_t rdLength;
+            std::memcpy(&rdLength, &responseBuffer[cursor], 2);
+            rdLength = ntohs(rdLength);
+            cursor += 2;
+
+            // If it's an IPv4 address (Type A), it must be exactly 4 bytes long
+            if (rdLength == 4) {
+                int ip1 = responseBuffer[cursor];
+                int ip2 = responseBuffer[cursor+1];
+                int ip3 = responseBuffer[cursor+2];
+                int ip4 = responseBuffer[cursor+3];
+                
+                std::cout << "=> Resolved IP [" << i + 1 << "]: " 
+                          << ip1 << "." << ip2 << "." << ip3 << "." << ip4 << std::endl;
+            }
+            cursor += rdLength; // Advance cursor past this record's data payload
         }
-        std::cout << std::dec << "\n------------------------" << std::endl;
     }
 
     closesocket(clientSocket);
