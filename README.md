@@ -28,8 +28,8 @@ The program sends raw DNS queries to Google’s public DNS server (8.8.8.8), rec
 
 ## Technologies Used
 
-* C++
-* UDP sockets
+* C++17
+* Winsock2 (UDP sockets)
 * DNS protocol (RFC 1035)
 * Binary packet parsing
 
