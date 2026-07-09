@@ -3,7 +3,7 @@
 #include <vector>
 #include <string>
 #include <cstring>
-#include <iomanip>
+#include <cstdint>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -17,130 +17,187 @@ struct DNSHeader {
 };
 
 void encode_dns_name(const std::string& domain, std::vector<uint8_t>& buffer) {
-    std::string label = "";
+    std::string label;
     std::string full_domain = domain + ".";
+
     for (char c : full_domain) {
         if (c == '.') {
             buffer.push_back(static_cast<uint8_t>(label.length()));
-            for (char l : label) {
-                buffer.push_back(static_cast<uint8_t>(l));
-            }
-            label = "";
+            for (char ch : label)
+                buffer.push_back(static_cast<uint8_t>(ch));
+            label.clear();
         } else {
             label += c;
         }
     }
+
     buffer.push_back(0);
 }
 
-int main() {
-    std::cout << "--- Final Project: DNS Resolver with Parsing ---" << std::endl;
+int main(int argc, char* argv[]) {
+    std::cout << "===== DNS Resolver =====\n\n";
+
+    if (argc != 2) {
+        std::cout << "Usage: dns-resolver.exe <domain>\n";
+        return 1;
+    }
+
+    std::string targetDomain = argv[1];
 
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        std::cerr << "Failed to initialize Winsock." << std::endl;
+        std::cerr << "Failed to initialize Winsock.\n";
         return 1;
     }
 
     SOCKET clientSocket = socket(AF_INET, SOCK_DGRAM, 0);
+
     if (clientSocket == INVALID_SOCKET) {
-        std::cerr << "Failed to create socket." << std::endl;
+        std::cerr << "Failed to create socket.\n";
         WSACleanup();
         return 1;
     }
 
-    sockaddr_in serverAddr;
+    // 5-second timeout
+    DWORD timeout = 5000;
+    setsockopt(
+        clientSocket,
+        SOL_SOCKET,
+        SO_RCVTIMEO,
+        (const char*)&timeout,
+        sizeof(timeout)
+    );
+
+    sockaddr_in serverAddr{};
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(53);
     serverAddr.sin_addr.s_addr = inet_addr("8.8.8.8");
 
-    // Build Query
     std::vector<uint8_t> packet;
-    DNSHeader header;
+
+    DNSHeader header{};
     header.id = htons(0x1234);
     header.flags = htons(0x0100);
     header.q_count = htons(1);
-    header.ans_count = htons(0);
-    header.auth_count = htons(0);
-    header.add_count = htons(0);
+    header.ans_count = 0;
+    header.auth_count = 0;
+    header.add_count = 0;
 
-    uint8_t header_bytes[12];
-    std::memcpy(header_bytes, &header, 12);
-    packet.insert(packet.end(), header_bytes, header_bytes + 12);
+    uint8_t headerBytes[12];
+    std::memcpy(headerBytes, &header, 12);
+    packet.insert(packet.end(), headerBytes, headerBytes + 12);
 
-    std::string targetDomain = "example.com";
     encode_dns_name(targetDomain, packet);
 
-    packet.push_back(0); packet.push_back(1); // Type A
-    packet.push_back(0); packet.push_back(1); // Class IN
+    // QTYPE = A
+    packet.push_back(0);
+    packet.push_back(1);
 
-    // Send Query
-    int bytesSent = sendto(clientSocket, reinterpret_cast<const char*>(packet.data()), packet.size(), 0, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
-    if (bytesSent == SOCKET_ERROR) {
-        std::cerr << "Failed to send query." << std::endl;
+    // QCLASS = IN
+    packet.push_back(0);
+    packet.push_back(1);
+
+    int sent = sendto(
+        clientSocket,
+        reinterpret_cast<const char*>(packet.data()),
+        static_cast<int>(packet.size()),
+        0,
+        (sockaddr*)&serverAddr,
+        sizeof(serverAddr)
+    );
+
+    if (sent == SOCKET_ERROR) {
+        std::cerr << "Failed to send DNS query.\n";
         closesocket(clientSocket);
         WSACleanup();
         return 1;
     }
 
-    // Receive Response
-    uint8_t responseBuffer[512];
-    int serverAddrLen = sizeof(serverAddr);
-    int bytesReceived = recvfrom(clientSocket, reinterpret_cast<char*>(responseBuffer), sizeof(responseBuffer), 0, (struct sockaddr*)&serverAddr, &serverAddrLen);
+    uint8_t response[512];
 
-    if (bytesReceived == SOCKET_ERROR) {
-        std::cerr << "Failed to receive data." << std::endl;
-    } else {
-        std::cout << "[SUCCESS] Received response payload." << std::endl;
-        
-        // --- PARSING ENGINE ---
-        // 1. Skip Header (12 bytes) + original encoded question size
-        // The question starts at byte 12 and ends after the domain name length + 4 bytes (QTYPE/QCLASS)
-        int answerOffset = packet.size(); 
-        
-        // Read how many answers the server sent back from the response header
-        DNSHeader* respHeader = reinterpret_cast<DNSHeader*>(responseBuffer);
-        int answerCount = ntohs(respHeader->ans_count);
-        std::cout << "Found " << answerCount << " answer records in packet.\n" << std::endl;
+    int serverLen = sizeof(serverAddr);
 
-        int cursor = answerOffset;
-        for (int i = 0; i < answerCount; i++) {
-            if (cursor >= bytesReceived) break;
+    int received = recvfrom(
+        clientSocket,
+        reinterpret_cast<char*>(response),
+        sizeof(response),
+        0,
+        (sockaddr*)&serverAddr,
+        &serverLen
+    );
 
-            // Check if it's a pointer/compression (starts with 0xC0)
-            if ((responseBuffer[cursor] & 0xC0) == 0xC0) {
-                cursor += 2; // Skip the name pointer
-            } else {
-                while (responseBuffer[cursor] != 0 && cursor < bytesReceived) {
-                    cursor++;
-                }
-                cursor++; // Skip null terminator
-            }
-
-            // Read Type, Class, and TTL metadata fields (skip 2 + 2 + 4 = 8 bytes)
-            cursor += 8;
-
-            // Read data length (RDLENGTH is 2 bytes)
-            uint16_t rdLength;
-            std::memcpy(&rdLength, &responseBuffer[cursor], 2);
-            rdLength = ntohs(rdLength);
-            cursor += 2;
-
-            // If it's an IPv4 address (Type A), it must be exactly 4 bytes long
-            if (rdLength == 4) {
-                int ip1 = responseBuffer[cursor];
-                int ip2 = responseBuffer[cursor+1];
-                int ip3 = responseBuffer[cursor+2];
-                int ip4 = responseBuffer[cursor+3];
-                
-                std::cout << "=> Resolved IP [" << i + 1 << "]: " 
-                          << ip1 << "." << ip2 << "." << ip3 << "." << ip4 << std::endl;
-            }
-            cursor += rdLength; // Advance cursor past this record's data payload
-        }
+    if (received == SOCKET_ERROR) {
+        std::cerr << "Failed to receive response (timeout or invalid domain).\n";
+        closesocket(clientSocket);
+        WSACleanup();
+        return 1;
     }
+
+    DNSHeader* respHeader = reinterpret_cast<DNSHeader*>(response);
+
+    int answerCount = ntohs(respHeader->ans_count);
+
+    std::cout << "Domain: " << targetDomain << "\n\n";
+
+    if (answerCount == 0) {
+        std::cout << "No A records found.\n";
+        closesocket(clientSocket);
+        WSACleanup();
+        return 0;
+    }
+
+    std::cout << "IP Addresses:\n";
+
+    int cursor = static_cast<int>(packet.size());
+
+    int ipIndex = 1;
+
+    for (int i = 0; i < answerCount; i++) {
+
+        // Skip NAME
+        if ((response[cursor] & 0xC0) == 0xC0) {
+            cursor += 2;
+        } else {
+            while (response[cursor] != 0)
+                cursor++;
+            cursor++;
+        }
+
+        uint16_t type;
+        std::memcpy(&type, response + cursor, 2);
+        type = ntohs(type);
+        cursor += 2;
+
+        uint16_t dnsClass;
+        std::memcpy(&dnsClass, response + cursor, 2);
+        dnsClass = ntohs(dnsClass);
+        cursor += 2;
+
+        cursor += 4; // TTL
+
+        uint16_t rdLength;
+        std::memcpy(&rdLength, response + cursor, 2);
+        rdLength = ntohs(rdLength);
+        cursor += 2;
+
+        if (type == 1 && dnsClass == 1 && rdLength == 4) {
+
+            std::cout
+                << ipIndex++ << ". "
+                << (int)response[cursor] << "."
+                << (int)response[cursor + 1] << "."
+                << (int)response[cursor + 2] << "."
+                << (int)response[cursor + 3]
+                << "\n";
+        }
+
+        cursor += rdLength;
+    }
+
+    std::cout << "\nDNS query completed successfully!\n";
 
     closesocket(clientSocket);
     WSACleanup();
+
     return 0;
 }
