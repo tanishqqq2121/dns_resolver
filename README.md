@@ -39,24 +39,20 @@ The program sends raw DNS queries to Google’s public DNS server (8.8.8.8), rec
 
 ## Build
 
+### Windows 11 (MinGW-w64)
+
 ```bash
-clang++ -std=c++17 -o main main.cpp
+g++ -std=c++17 -o dns-resolver.exe main.cpp -lws2_32
 ```
-
-
-
-
 
 ## Usage
 
 ```bash
+dns-resolver.exe google.com
 
-./main google.com
+dns-resolver.exe brave.com
 
-./main brave.com
-
-./main www.youtube.com
-
+dns-resolver.exe www.youtube.com
 ```
 
 
@@ -65,7 +61,7 @@ clang++ -std=c++17 -o main main.cpp
 ## Example Output
 
 ```text
-$ ./main google.com
+dns-resolver.exe google.com
 
 Domain: google.com
 
@@ -101,9 +97,9 @@ DNS query completed successfully!
 
 ```text
 dns-resolver-cpp/
-├── main.cpp
+├── .gitignore
 ├── README.md
-└── .gitignore
+└── main.cpp
 ```
 
 
