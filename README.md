@@ -1,30 +1,21 @@
 # DNS Resolver (C++)
 
-A mini DNS resolver built completely from scratch in C++ without using any built-in DNS lookup libraries.
+A lightweight DNS resolver built completely from scratch in C++ without relying on any built-in DNS lookup libraries.
 
-The program sends raw DNS queries to Google’s public DNS server (8.8.8.8), receives the binary response over UDP, and manually parses the DNS packet to extract IP addresses.
-
-
-
-
+The program sends raw DNS queries to Google's public DNS server (8.8.8.8), receives the binary response over UDP, and manually parses the DNS packet to extract IPv4 (A) record IP addresses.
 
 ## Features
 
 * Constructs DNS packets manually
-* Uses UDP sockets to communicate with DNS servers
+* Uses UDP sockets (Winsock2) to communicate with DNS servers
 * Encodes domain names into DNS wire format
 * Parses DNS response headers
 * Parses answer records
 * Supports multiple A records
-* Handles CNAME records
 * Handles DNS compression pointers (0xC0)
 * Supports command-line input
-* Handles invalid domains
 * Uses socket timeout to avoid hanging forever
-
-
-
-
+* Displays resolved IPv4 addresses
 
 ## Technologies Used
 
@@ -32,10 +23,6 @@ The program sends raw DNS queries to Google’s public DNS server (8.8.8.8), rec
 * Winsock2 (UDP sockets)
 * DNS protocol (RFC 1035)
 * Binary packet parsing
-
-
-
-
 
 ## Build
 
@@ -55,13 +42,12 @@ dns-resolver.exe brave.com
 dns-resolver.exe www.youtube.com
 ```
 
-
-
-
 ## Example Output
 
 ```text
 dns-resolver.exe google.com
+
+===== DNS Resolver =====
 
 Domain: google.com
 
@@ -70,9 +56,6 @@ IP Addresses:
 
 DNS query completed successfully!
 ```
-
-
-
 
 ## Concepts Learned
 
@@ -85,13 +68,9 @@ DNS query completed successfully!
 * Network byte order
 * htons(), ntohs(), ntohl()
 * DNS compression pointers
-* CNAME records
 * Multiple A records
 * Binary packet parsing
-
-
-
-
+* Winsock2 programming
 
 ## Project Structure
 
@@ -102,20 +81,17 @@ dns-resolver-cpp/
 └── main.cpp
 ```
 
-
-
-
-
 ## Future Improvements
 
 * AAAA (IPv6) record support
+* CNAME record parsing
 * MX record support
+* TXT record support
 * Recursive resolution
 * Local DNS caching
 * Configurable DNS servers
-
-
-
+* Improved DNS response validation
+* Better error handling
 
 
 ## Author
@@ -126,3 +102,6 @@ B.Tech CSE (2024–2028)
 
 Delhi Technological University (DTU)  
 Computer Science and Engineering
+
+
+
