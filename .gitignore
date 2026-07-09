@@ -1,0 +1,12 @@
+# Compiled executables
+*.exe
+*.out
+main
+
+# Object files and build artifacts
+*.o
+*.obj
+
+# IDE configurations
+.vscode/
+.idea/
